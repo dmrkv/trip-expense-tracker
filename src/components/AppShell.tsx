@@ -1,3 +1,4 @@
+import { Briefcase, Settings } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import ToastViewport from './ToastViewport';
 
@@ -117,28 +118,9 @@ function BottomTab({
 }
 
 function TripsIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 7h16M6 7v10a2 2 0 002 2h8a2 2 0 002-2V7M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  return <Briefcase className="h-[22px] w-[22px]" strokeWidth={1.7} aria-hidden />;
 }
 
 function SettingsIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
-      <path
-        d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1.11-1.55 1.7 1.7 0 00-1.87.34l-.06.06A2 2 0 113.17 16.93l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H1.83a2 2 0 110-4h.09A1.7 1.7 0 003.57 9a1.7 1.7 0 00-.34-1.87l-.06-.06A2 2 0 116 4.24l.06.06a1.7 1.7 0 001.87.34H8a1.7 1.7 0 001-1.55V3a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87V9a1.7 1.7 0 001.55 1H21a2 2 0 110 4h-.09a1.7 1.7 0 00-1.55 1z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <Settings className="h-[22px] w-[22px]" strokeWidth={1.7} aria-hidden />;
 }
