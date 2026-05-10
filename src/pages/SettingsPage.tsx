@@ -98,7 +98,7 @@ export default function SettingsPage() {
           <input
             ref={fileRef}
             type="file"
-            accept="application/json,.json"
+            accept="application/json,.json,.tripsplit.json"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

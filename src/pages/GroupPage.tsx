@@ -8,7 +8,8 @@ import ExpensesTab from '../components/ExpensesTab';
 import BalancesTab from '../components/BalancesTab';
 import MembersTab from '../components/MembersTab';
 import AddExpenseModal from '../components/AddExpenseModal';
-import { deleteGroup } from '../lib/repo';
+import ShareTripBackupModal from '../components/ShareTripBackupModal';
+import { deleteGroup, exportGroupReplacePayload } from '../lib/repo';
 import { useUI } from '../store/ui';
 import type { Member } from '../types';
 
@@ -25,6 +26,10 @@ export default function GroupPage() {
   const pushToast = useUI((s) => s.pushToast);
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBackupJson, setShareBackupJson] = useState<string | null>(null);
+  const [shareBackupLoading, setShareBackupLoading] = useState(false);
+  const [shareBackupError, setShareBackupError] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
 
   const group = useLiveQuery(() => (id ? db.groups.get(id) : undefined), [id]);
@@ -68,6 +73,40 @@ export default function GroupPage() {
     navigate('/', { replace: true });
   }
 
+  function closeShareModal() {
+    setShareOpen(false);
+    setShareBackupJson(null);
+    setShareBackupError(null);
+    setShareBackupLoading(false);
+  }
+
+  async function openShareModal() {
+    if (!id) return;
+    setShareOpen(true);
+    setShareBackupJson(null);
+    setShareBackupError(null);
+    setShareBackupLoading(true);
+    try {
+      const payload = await exportGroupReplacePayload(id);
+      setShareBackupJson(JSON.stringify(payload, null, 2));
+    } catch (e) {
+      setShareBackupError(e instanceof Error ? e.message : 'Could not export trip');
+    } finally {
+      setShareBackupLoading(false);
+    }
+  }
+
+  function openAddExpense() {
+    if (members.length === 0) {
+      pushToast({
+        kind: 'info',
+        message: 'Add a member before recording an expense.',
+      });
+      return;
+    }
+    setAdding(true);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
@@ -84,45 +123,63 @@ export default function GroupPage() {
             {group.defaultCurrency}
           </div>
         </div>
-        <div className="relative">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            className="btn-ghost h-9 w-9 p-0 grid place-items-center"
-            aria-label="Trip menu"
-            onClick={() => setShowMenu((s) => !s)}
-            onBlur={() => setTimeout(() => setShowMenu(false), 120)}
+            className="btn-secondary min-h-10 px-3 py-2 text-sm gap-1.5"
+            onClick={() => void openShareModal()}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <circle cx="12" cy="5" r="1.6" fill="currentColor" />
-              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-              <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path
+                d="M12 3v12m0 0l4-4m-4 4L8 11M5 19h14a2 2 0 002-2v-3"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
+            Share
           </button>
-          {showMenu ? (
-            <div className="absolute right-0 mt-1 z-20 w-40 rounded-xl bg-white shadow-lg border border-slate-200 overflow-hidden text-sm">
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setEditing(true);
-                  setShowMenu(false);
-                }}
-                className="block w-full text-left px-3 py-2 hover:bg-slate-50"
-              >
-                Edit trip
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  void handleDelete();
-                }}
-                className="block w-full text-left px-3 py-2 text-red-600 hover:bg-red-50"
-              >
-                Delete trip
-              </button>
-            </div>
-          ) : null}
+          <div className="relative">
+            <button
+              type="button"
+              className="btn-ghost min-h-10 w-10 p-0 grid place-items-center"
+              aria-label="Trip menu"
+              onClick={() => setShowMenu((s) => !s)}
+              onBlur={() => setTimeout(() => setShowMenu(false), 120)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+              </svg>
+            </button>
+            {showMenu ? (
+              <div className="absolute right-0 mt-1 z-20 w-40 rounded-xl bg-white shadow-lg border border-slate-200 overflow-hidden text-sm">
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setEditing(true);
+                    setShowMenu(false);
+                  }}
+                  className="block w-full text-left px-3 py-2 hover:bg-slate-50"
+                >
+                  Edit trip
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void handleDelete();
+                  }}
+                  className="block w-full text-left px-3 py-2 text-red-600 hover:bg-red-50"
+                >
+                  Delete trip
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -147,7 +204,7 @@ export default function GroupPage() {
       </div>
 
       {activeTab === 'expenses' ? (
-        <ExpensesTab groupId={id} members={members} />
+        <ExpensesTab groupId={id} members={members} onRequestAddExpense={openAddExpense} />
       ) : null}
       {activeTab === 'balances' ? (
         <BalancesTab groupId={id} members={members} />
@@ -159,16 +216,7 @@ export default function GroupPage() {
       {/* Floating add expense button */}
       <button
         type="button"
-        onClick={() => {
-          if (members.length === 0) {
-            pushToast({
-              kind: 'info',
-              message: 'Add a member before recording an expense.',
-            });
-            return;
-          }
-          setAdding(true);
-        }}
+        onClick={openAddExpense}
         className="fixed right-4 z-30 btn-primary h-14 w-14 rounded-full p-0 shadow-lg"
         style={{ bottom: 'calc(72px + var(--safe-bottom))' }}
         aria-label="Add expense"
@@ -193,6 +241,14 @@ export default function GroupPage() {
         onClose={() => setAdding(false)}
         group={group}
         members={members}
+      />
+      <ShareTripBackupModal
+        open={shareOpen}
+        onClose={closeShareModal}
+        groupName={group.name}
+        backupJson={shareBackupJson}
+        backupLoading={shareBackupLoading}
+        backupError={shareBackupError}
       />
     </div>
   );

@@ -10,12 +10,74 @@ import { deleteExpense } from '../lib/repo';
 import { useUI } from '../store/ui';
 import type { Expense, Member } from '../types';
 
+function ExpensesEmptyIllustration() {
+  return (
+    <svg
+      viewBox="0 0 200 168"
+      className="w-full h-auto max-h-[132px]"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M48 36h72l16 16v88a8 8 0 01-8 8H48a8 8 0 01-8-8V44a8 8 0 018-8z"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinejoin="round"
+        className="text-accent"
+      />
+      <path
+        d="M56 58h56M56 74h40M56 90h48"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        className="text-accent/55"
+      />
+      <circle cx="152" cy="52" r="22" stroke="currentColor" strokeWidth="2.25" className="text-accent" />
+      <path
+        d="M152 42v12l8 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-accent"
+      />
+      <path
+        d="M118 118l36 36"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        className="text-accent/70"
+      />
+      <rect
+        x="22"
+        y="96"
+        width="52"
+        height="38"
+        rx="8"
+        stroke="currentColor"
+        strokeWidth="2"
+        className="text-accent/45"
+      />
+      <path
+        d="M34 108h28M34 118h18"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        className="text-accent/45"
+      />
+    </svg>
+  );
+}
+
 export default function ExpensesTab({
   groupId,
   members,
+  onRequestAddExpense,
 }: {
   groupId: string;
   members: Member[];
+  onRequestAddExpense?: () => void;
 }) {
   const expenses = useLiveQuery(
     () =>
@@ -33,8 +95,21 @@ export default function ExpensesTab({
   if (expenses.length === 0) {
     return (
       <EmptyState
-        title="No expenses yet"
-        description="Tap the + button to record the first expense for this trip."
+        prominent
+        title="Add your first expense"
+        description="Track shared costs and who paid — friends settle up from balances when you're ready."
+        icon={<ExpensesEmptyIllustration />}
+        action={
+          onRequestAddExpense ? (
+            <button
+              type="button"
+              className="btn-primary min-h-11 px-6"
+              onClick={onRequestAddExpense}
+            >
+              Add expense
+            </button>
+          ) : null
+        }
       />
     );
   }

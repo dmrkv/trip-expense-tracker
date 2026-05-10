@@ -146,6 +146,27 @@ export async function exportAll(): Promise<ExportPayload> {
   };
 }
 
+/** Same shape as full backup; safe to import via Settings → import (replaces all local data). */
+export async function exportGroupReplacePayload(groupId: string): Promise<ExportPayload> {
+  const group = await db.groups.get(groupId);
+  if (!group) {
+    throw new Error(`Trip not found`);
+  }
+  const [members, expenses, transfers] = await Promise.all([
+    db.members.where('groupId').equals(groupId).toArray(),
+    db.expenses.where('groupId').equals(groupId).toArray(),
+    db.transfers.where('groupId').equals(groupId).toArray(),
+  ]);
+  return {
+    schemaVersion: 1,
+    exportedAt: now(),
+    groups: [group],
+    members,
+    expenses,
+    transfers,
+  };
+}
+
 /**
  * Replace-all import. Future: support merge semantics. Returns the
  * row counts written so the caller can show a confirmation toast.
