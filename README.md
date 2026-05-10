@@ -34,34 +34,46 @@ npm install
 cp .env.example .env   # optional — fill Supabase keys or leave unset for local-only
 npm run dev      # http://localhost:5173
 npm run build    # type-check + production build to ./dist (no env vars required)
+npm run deploy:check  # alias for `npm run build` — quick pre-push check
 npm run preview  # serve the build locally
 npm run lint     # ESLint
 ```
 
-### Optional Supabase cloud backup
+### Enable cloud backup (Supabase)
 
-1. Create a project at [supabase.com](https://supabase.com).
-2. **Authentication → Providers**: enable **Anonymous sign-ins** and **Email** (magic link / OTP). Disable passwords if you want magic-link only.
-3. **Authentication → URL configuration**: add redirect URLs:
-   - `http://localhost:5173/**` (and your dev port if different)
-   - Production: `https://travelsp.netlify.app/**` (adjust to your deployed origin)
-4. Copy **Project URL** and **anon public** key into `.env` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-5. Open the SQL editor (or Supabase CLI) and run the migration in [`supabase/migrations/001_initial.sql`](./supabase/migrations/001_initial.sql).
+<a id="enable-cloud-backup-supabase"></a>
+
+If Settings shows **cloud backup disabled**, walk through these steps (no secrets belong in the repo).
+
+1. **Supabase project**: create a project at [supabase.com](https://supabase.com).
+2. **Auth providers**: **Authentication → Providers** — enable **Anonymous** sign-ins and **Email** (magic link / OTP). Disable passwords if you want magic-link only.
+3. **Database**: **SQL Editor** → run the full script in [`supabase/migrations/001_initial.sql`](./supabase/migrations/001_initial.sql) (creates tables + RLS expected by the app).
+4. **API keys**: **Project Settings → API** — copy **Project URL** and the **anon public** key (not the service role key).
+5. **Local dev**: put them in `.env` as **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_ANON_KEY`** (see `.env.example`). Restart `npm run dev` after changing `.env`.
+6. **Netlify (production)**: **Site configuration → Environment variables** — add **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_ANON_KEY`** with those **exact** names. Then **trigger a new deploy** (use **Clear cache and deploy** if the UI still looks unchanged). **Important:** Vite inlines `import.meta.env.VITE_*` **at build time**; updating Netlify env vars does nothing until the site is **rebuilt**.
+7. **Redirect URLs**: **Authentication → URL configuration** — add:
+   - `http://localhost:5173/**` (or your Vite dev origin)
+   - `https://travelsp.netlify.app/**` (production; adjust if your Netlify URL differs)
 
 **Anonymous → email linking:** Completing the magic link on the **same browser profile** lets Supabase merge the anonymous user into the permanent email identity (see [Supabase identity linking](https://supabase.com/docs/guides/auth/auth-anonymous#link-an-email--phone-identity)). Signing out starts a **new** anonymous session; older cloud rows remain tied to the previous account until you sign in with that email again.
 
 **Build without env:** If the two `VITE_*` variables are unset, the app stays **local-only** and Settings shows a short banner explaining how to configure sync.
 
+## Development
+
+### Deploy
+
+After agent or local changes, commit and push to the branch Netlify watches (usually **`main`**) — e.g. **`git push origin main`** — so Netlify runs a new build. Optionally run **`npm run deploy:check`** (same as `npm run build`) locally before pushing to catch type or bundle errors early.
+
 ## Deploy to Netlify
 
-The repo includes a `netlify.toml` and a `public/_redirects` file. Just point
-Netlify at this repo:
+The repo includes a `netlify.toml` and a `public/_redirects` file. Point Netlify at this repo:
 
 - Build command: `npm run build`
 - Publish directory: `dist`
 - SPA redirect `/* → /index.html` is preconfigured.
 
-Add the same production URL under Supabase Auth redirect URLs.
+Add **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_ANON_KEY`** in Netlify and include your production site under Supabase Auth redirect URLs — see [Enable cloud backup (Supabase)](#enable-cloud-backup-supabase) above.
 
 ## Data model (Dexie)
 

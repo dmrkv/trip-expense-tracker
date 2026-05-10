@@ -10,6 +10,8 @@ interface ModalProps {
   footer?: React.ReactNode;
   /** When true, renders as a bottom sheet on mobile and centered card on sm+. */
   variant?: 'sheet' | 'centered';
+  /** Wider max-width on large screens for dense two-column content. */
+  wide?: boolean;
 }
 
 export default function Modal({
@@ -19,6 +21,7 @@ export default function Modal({
   children,
   footer,
   variant = 'sheet',
+  wide = false,
 }: ModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -51,8 +54,8 @@ export default function Modal({
       <div
         className={`relative w-full ${
           variant === 'sheet'
-            ? 'sm:max-w-md sm:rounded-2xl rounded-t-2xl'
-            : 'sm:max-w-md rounded-2xl mx-4'
+            ? `sm:max-w-md sm:rounded-2xl rounded-t-2xl${wide ? ' lg:max-w-4xl' : ''}`
+            : `sm:max-w-md rounded-2xl mx-4${wide ? ' lg:max-w-4xl' : ''}`
         } bg-white shadow-xl max-h-[92vh] flex flex-col`}
         style={{ paddingBottom: 'var(--safe-bottom)' }}
       >

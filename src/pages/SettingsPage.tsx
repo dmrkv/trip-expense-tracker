@@ -138,8 +138,17 @@ export default function SettingsPage() {
           <code className="rounded bg-amber-100/80 px-1 py-0.5 text-xs">
             VITE_SUPABASE_ANON_KEY
           </code>{' '}
-          (see README and <code className="text-xs">.env.example</code>) to enable anonymous backup
-          and magic-link sign-in.
+          (see{' '}
+          <a
+            className="font-medium underline decoration-amber-700/40 underline-offset-2 hover:decoration-amber-900"
+            href="https://github.com/dmrkv/trip-expense-tracker/blob/main/README.md#enable-cloud-backup-supabase"
+            target="_blank"
+            rel="noreferrer"
+          >
+            README: Enable cloud backup
+          </a>
+          , <code className="text-xs">.env.example</code>, and Netlify env + redeploy for production)
+          to enable anonymous backup and magic-link sign-in.
         </div>
       ) : null}
 

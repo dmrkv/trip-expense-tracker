@@ -1,19 +1,22 @@
-import { useMemo, useState } from 'react';
-import { MoreVertical, Plus, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowRightLeft, MoreVertical, Plus, Users } from 'lucide-react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import Avatar from '../components/Avatar';
 import GroupFormModal from '../components/GroupFormModal';
 import ExpensesTab from '../components/ExpensesTab';
-import BalancesTab from '../components/BalancesTab';
+import BalancesPanel from '../components/BalancesPanel';
 import MembersTab from '../components/MembersTab';
 import AddExpenseModal from '../components/AddExpenseModal';
+import AddSettlementModal from '../components/AddSettlementModal';
 import ShareTripBackupModal from '../components/ShareTripBackupModal';
 import { deleteGroup, exportGroupReplacePayload } from '../lib/repo';
 import { useUI } from '../store/ui';
 import type { ExportPayload } from '../lib/repo';
-import type { Member } from '../types';
+import type { Expense, Member } from '../types';
+
+type ExpenseModalState = null | { mode: 'add' } | { mode: 'edit'; expense: Expense };
 
 const TABS = [
   { key: 'expenses', label: 'Expenses' },
@@ -22,17 +25,33 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
+function useIsLgUp() {
+  const [lg, setLg] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    function apply() {
+      setLg(mq.matches);
+    }
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+  return lg;
+}
+
 export default function GroupPage() {
   const { id, tab } = useParams<{ id: string; tab?: string }>();
   const navigate = useNavigate();
   const pushToast = useUI((s) => s.pushToast);
   const [editing, setEditing] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [expenseModal, setExpenseModal] = useState<ExpenseModalState>(null);
+  const [settling, setSettling] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBackupPayload, setShareBackupPayload] = useState<ExportPayload | null>(null);
   const [shareBackupLoading, setShareBackupLoading] = useState(false);
   const [shareBackupError, setShareBackupError] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const isLgUp = useIsLgUp();
 
   const group = useLiveQuery(() => (id ? db.groups.get(id) : undefined), [id]);
   const members = useLiveQuery<Member[], Member[]>(
@@ -48,6 +67,21 @@ export default function GroupPage() {
     const found = TABS.find((t) => t.key === tab);
     return found?.key ?? 'expenses';
   }, [tab]);
+
+  const visibleTabs = useMemo(
+    () => (isLgUp ? TABS.filter((t) => t.key !== 'balances') : TABS),
+    [isLgUp],
+  );
+
+  const mainTab: 'expenses' | 'members' | 'balances' = useMemo(() => {
+    if (!isLgUp && activeTab === 'balances') return 'balances';
+    if (isLgUp && activeTab === 'balances') return 'expenses';
+    if (activeTab === 'members') return 'members';
+    return 'expenses';
+  }, [isLgUp, activeTab]);
+
+  const expensesTabSelected =
+    activeTab === 'expenses' || (isLgUp && activeTab === 'balances');
 
   if (!id) return null;
   if (group === undefined) {
@@ -106,7 +140,22 @@ export default function GroupPage() {
       });
       return;
     }
-    setAdding(true);
+    setExpenseModal({ mode: 'add' });
+  }
+
+  function closeExpenseModal() {
+    setExpenseModal(null);
+  }
+
+  function openAddSettlement() {
+    if (members.length < 2) {
+      pushToast({
+        kind: 'info',
+        message: 'Add at least two members to record a payment between people.',
+      });
+      return;
+    }
+    setSettling(true);
   }
 
   return (
@@ -136,6 +185,16 @@ export default function GroupPage() {
             <Plus className="h-[18px] w-[18px] shrink-0" aria-hidden />
             <span className="sm:hidden">Add</span>
             <span className="hidden sm:inline">Add expense</span>
+          </button>
+          <button
+            type="button"
+            className="btn-secondary min-h-10 px-3 py-2 text-sm gap-1.5"
+            onClick={openAddSettlement}
+            title="Record a payment between members"
+          >
+            <ArrowRightLeft className="h-[18px] w-[18px] shrink-0" aria-hidden />
+            <span className="sm:hidden">Pay</span>
+            <span className="hidden sm:inline">Settle</span>
           </button>
           <button
             type="button"
@@ -184,35 +243,63 @@ export default function GroupPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 rounded-xl bg-white border border-slate-200 p-1">
-        {TABS.map((t) => (
-          <NavLink
-            key={t.key}
-            to={t.key === 'expenses' ? `/group/${id}` : `/group/${id}/${t.key}`}
-            end
-            className={({ isActive }) =>
-              `flex-1 text-center text-sm font-medium py-2 rounded-lg transition ${
-                (isActive && t.key !== 'expenses') ||
-                (t.key === 'expenses' && activeTab === 'expenses')
-                  ? 'bg-accent/10 text-accent-700'
-                  : 'text-slate-600'
-              }`
-            }
-          >
-            {t.label}
-          </NavLink>
-        ))}
-      </div>
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:gap-6 lg:items-start">
+        <div className="min-w-0 space-y-4">
+          <div className="flex items-center gap-1 rounded-xl bg-white border border-slate-200 p-1">
+            {visibleTabs.map((t) => (
+              <NavLink
+                key={t.key}
+                to={t.key === 'expenses' ? `/group/${id}` : `/group/${id}/${t.key}`}
+                end
+                className={() =>
+                  `flex-1 text-center text-sm font-medium py-2 rounded-lg transition ${
+                    (t.key === 'expenses' && expensesTabSelected) ||
+                    (t.key === 'members' && activeTab === 'members')
+                      ? 'bg-accent/10 text-accent-700'
+                      : 'text-slate-600'
+                  }`
+                }
+              >
+                {t.label}
+              </NavLink>
+            ))}
+          </div>
 
-      {activeTab === 'expenses' ? (
-        <ExpensesTab groupId={id} members={members} onRequestAddExpense={openAddExpense} />
-      ) : null}
-      {activeTab === 'balances' ? (
-        <BalancesTab groupId={id} members={members} />
-      ) : null}
-      {activeTab === 'members' ? (
-        <MembersTab groupId={id} members={members} />
-      ) : null}
+          {mainTab === 'expenses' ? (
+            <ExpensesTab
+              groupId={id}
+              members={members}
+              onRequestAddExpense={openAddExpense}
+              onEditExpense={(expense) => setExpenseModal({ mode: 'edit', expense })}
+            />
+          ) : null}
+          {mainTab === 'members' ? (
+            <MembersTab groupId={id} members={members} />
+          ) : null}
+          {mainTab === 'balances' ? (
+            <BalancesPanel
+              groupId={id}
+              members={members}
+              onRequestRecordSettlement={openAddSettlement}
+              variant="standalone"
+            />
+          ) : null}
+        </div>
+
+        {isLgUp ? (
+          <aside
+            className="flex flex-col mt-0 rounded-xl border border-slate-200 bg-white shadow-sm p-4 min-h-[min(640px,calc(100vh-var(--safe-top)-4rem-var(--safe-bottom)-3rem))] max-h-[calc(100vh-var(--safe-top)-4rem-var(--safe-bottom)-2rem)] lg:sticky lg:top-[calc(var(--safe-top)+3.5rem+0.75rem)]"
+            aria-label="Balances"
+          >
+            <BalancesPanel
+              groupId={id}
+              members={members}
+              onRequestRecordSettlement={openAddSettlement}
+              variant="sidebar"
+            />
+          </aside>
+        ) : null}
+      </div>
 
       <GroupFormModal
         open={editing}
@@ -220,8 +307,15 @@ export default function GroupPage() {
         editing={group}
       />
       <AddExpenseModal
-        open={adding}
-        onClose={() => setAdding(false)}
+        open={expenseModal !== null}
+        onClose={closeExpenseModal}
+        group={group}
+        members={members}
+        initialExpense={expenseModal?.mode === 'edit' ? expenseModal.expense : undefined}
+      />
+      <AddSettlementModal
+        open={settling}
+        onClose={() => setSettling(false)}
         group={group}
         members={members}
       />

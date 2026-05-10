@@ -87,6 +87,7 @@ export interface NewExpenseInput {
   paidByMemberId: string;
   split: SplitPayload;
   categoryKey?: string;
+  iconKey?: string;
 }
 
 export async function createExpense(input: NewExpenseInput): Promise<Expense> {
@@ -102,6 +103,7 @@ export async function createExpense(input: NewExpenseInput): Promise<Expense> {
     splitMode: input.split.mode,
     splitJson: input.split,
     categoryKey: input.categoryKey,
+    iconKey: input.iconKey,
     createdAt: now(),
     updatedAt: now(),
   };
@@ -110,16 +112,62 @@ export async function createExpense(input: NewExpenseInput): Promise<Expense> {
   return expense;
 }
 
+/** Editable expense fields (same as create, excluding identity / group). */
+export interface UpdateExpenseInput {
+  title: string;
+  description?: string;
+  date: string;
+  amountMinor: number;
+  currency: string;
+  paidByMemberId: string;
+  split: SplitPayload;
+  categoryKey?: string;
+  iconKey?: string;
+}
+
+export async function updateExpense(id: string, input: UpdateExpenseInput): Promise<void> {
+  await db.expenses.update(id, {
+    title: input.title.trim(),
+    description: input.description?.trim() || undefined,
+    date: input.date,
+    amountMinor: input.amountMinor,
+    currency: input.currency.toUpperCase(),
+    paidByMemberId: input.paidByMemberId,
+    splitMode: input.split.mode,
+    splitJson: input.split,
+    categoryKey: input.categoryKey,
+    updatedAt: now(),
+    ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
+  });
+  notifyLocalDataMutation();
+}
+
 export async function deleteExpense(id: string) {
   await db.expenses.delete(id);
   notifyLocalDataMutation();
 }
 
 // ------------------------------------------------------------- transfers
-export async function createTransfer(input: Omit<Transfer, 'id' | 'createdAt'>): Promise<Transfer> {
+export interface NewTransferInput {
+  groupId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  amountMinor: number;
+  currency: string;
+  date: string;
+  note?: string;
+}
+
+export async function createTransfer(input: NewTransferInput): Promise<Transfer> {
   const transfer: Transfer = {
-    ...input,
     id: uuid(),
+    groupId: input.groupId,
+    fromMemberId: input.fromMemberId,
+    toMemberId: input.toMemberId,
+    amountMinor: input.amountMinor,
+    currency: input.currency.toUpperCase(),
+    date: input.date,
+    note: input.note?.trim() || undefined,
     createdAt: now(),
     updatedAt: now(),
   };

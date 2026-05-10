@@ -35,7 +35,7 @@ export default function AppShell() {
       </header>
 
       <main
-        className="mx-auto w-full max-w-2xl px-4 pb-28 pt-4 flex-1"
+        className="mx-auto w-full max-w-2xl lg:max-w-6xl px-4 pb-28 pt-4 flex-1"
       >
         <Outlet />
       </main>

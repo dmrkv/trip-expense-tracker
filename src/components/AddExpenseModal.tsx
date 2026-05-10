@@ -6,15 +6,17 @@ import { CATEGORIES } from '../lib/categories';
 import { formatMinorNumeric, formatMoney, parseToMinor } from '../lib/money';
 import { todayIso } from '../lib/format';
 import { allocateWeightedMinor } from '../lib/splitAllocate';
-import { createExpense } from '../lib/repo';
+import { createExpense, updateExpense } from '../lib/repo';
 import { useUI } from '../store/ui';
-import type { Group, Member, SplitMode, SplitPayload } from '../types';
+import type { Expense, Group, Member, SplitMode, SplitPayload } from '../types';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   group: Group;
   members: Member[];
+  /** When set, modal edits this expense and persists via `updateExpense`. */
+  initialExpense?: Expense;
 }
 
 const SPLIT_MODES: { key: SplitMode; label: string }[] = [
@@ -23,6 +25,110 @@ const SPLIT_MODES: { key: SplitMode; label: string }[] = [
   { key: 'percent', label: 'By percent' },
   { key: 'shares', label: 'By shares' },
 ];
+
+function orderParticipantIds(ids: string[], members: Member[]): string[] {
+  const memberIds = new Set(members.map((m) => m.id));
+  const ordered = members.filter((m) => ids.includes(m.id)).map((m) => m.id);
+  const rest = ids.filter((id) => !memberIds.has(id));
+  return [...ordered, ...rest];
+}
+
+interface ExpenseFormSeed {
+  title: string;
+  description: string;
+  date: string;
+  amount: string;
+  currency: string;
+  paidById: string;
+  splitMode: SplitMode;
+  participants: string[];
+  exactByMember: Record<string, string>;
+  percentByMember: Record<string, string>;
+  sharesByMember: Record<string, string>;
+  categoryKey: string;
+}
+
+function formDefaultsFromExpense(e: Expense, members: Member[], group: Group): ExpenseFormSeed {
+  const currency = e.currency || group.defaultCurrency;
+  const split = e.splitJson;
+  let participants: string[] = [];
+  let exactByMember: Record<string, string> = {};
+  let percentByMember: Record<string, string> = {};
+  let sharesByMember: Record<string, string> = {};
+
+  switch (split.mode) {
+    case 'equal':
+      participants = orderParticipantIds([...split.participantMemberIds], members);
+      break;
+    case 'exact': {
+      const ids = Object.keys(split.shares);
+      participants = orderParticipantIds(ids, members);
+      exactByMember = Object.fromEntries(
+        participants.map((id) => [id, formatMinorNumeric(split.shares[id] ?? 0, currency)]),
+      );
+      break;
+    }
+    case 'percent': {
+      const ids = Object.keys(split.shares);
+      participants = orderParticipantIds(ids, members);
+      percentByMember = Object.fromEntries(
+        participants.map((id) => [id, (split.shares[id] ?? 0).toFixed(2)]),
+      );
+      break;
+    }
+    case 'shares': {
+      const ids = Object.keys(split.shares);
+      participants = orderParticipantIds(ids, members);
+      sharesByMember = Object.fromEntries(
+        participants.map((id) => [id, String(split.shares[id] ?? 1)]),
+      );
+      break;
+    }
+  }
+
+  const paidById = members.some((m) => m.id === e.paidByMemberId)
+    ? e.paidByMemberId
+    : members[0]?.id ?? '';
+
+  return {
+    title: e.title,
+    description: e.description ?? '',
+    date: e.date,
+    amount: formatMinorNumeric(e.amountMinor, currency),
+    currency,
+    paidById,
+    splitMode: split.mode,
+    participants,
+    exactByMember,
+    percentByMember,
+    sharesByMember,
+    categoryKey: e.categoryKey ?? 'food',
+  };
+}
+
+function expenseFormSeed(
+  initialExpense: Expense | undefined,
+  members: Member[],
+  group: Group,
+): ExpenseFormSeed {
+  if (initialExpense) {
+    return formDefaultsFromExpense(initialExpense, members, group);
+  }
+  return {
+    title: '',
+    description: '',
+    date: todayIso(),
+    amount: '',
+    currency: group.defaultCurrency,
+    paidById: members[0]?.id ?? '',
+    splitMode: 'equal',
+    participants: members.map((m) => m.id),
+    exactByMember: {},
+    percentByMember: {},
+    sharesByMember: {},
+    categoryKey: 'food',
+  };
+}
 
 /** Equal percentages over ids as strings summing to 100.00 (basis-point split). */
 function equalPercentRecord(ids: string[]): Record<string, string> {
@@ -61,19 +167,23 @@ export default function AddExpenseModal(props: Props) {
   return <AddExpenseModalInner {...props} />;
 }
 
-function AddExpenseModalInner({ open, onClose, group, members }: Props) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [date, setDate] = useState(todayIso());
-  const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState(group.defaultCurrency);
-  const [paidById, setPaidById] = useState<string>(members[0]?.id ?? '');
-  const [splitMode, setSplitMode] = useState<SplitMode>('equal');
-  const [participants, setParticipants] = useState<string[]>(members.map((m) => m.id));
-  const [exactByMember, setExactByMember] = useState<Record<string, string>>({});
-  const [percentByMember, setPercentByMember] = useState<Record<string, string>>({});
-  const [sharesByMember, setSharesByMember] = useState<Record<string, string>>({});
-  const [categoryKey, setCategoryKey] = useState<string>('food');
+function AddExpenseModalInner({ onClose, group, members, initialExpense }: Props) {
+  const isEdit = initialExpense !== undefined;
+  const seed = expenseFormSeed(initialExpense, members, group);
+  const [title, setTitle] = useState(seed.title);
+  const [description, setDescription] = useState(seed.description);
+  const [date, setDate] = useState(seed.date);
+  const [amount, setAmount] = useState(seed.amount);
+  const [currency, setCurrency] = useState(seed.currency);
+  const [paidById, setPaidById] = useState<string>(seed.paidById);
+  const [splitMode, setSplitMode] = useState<SplitMode>(seed.splitMode);
+  const [participants, setParticipants] = useState<string[]>(seed.participants);
+  const [exactByMember, setExactByMember] = useState<Record<string, string>>(seed.exactByMember);
+  const [percentByMember, setPercentByMember] = useState<Record<string, string>>(
+    seed.percentByMember,
+  );
+  const [sharesByMember, setSharesByMember] = useState<Record<string, string>>(seed.sharesByMember);
+  const [categoryKey, setCategoryKey] = useState<string>(seed.categoryKey);
   const [busy, setBusy] = useState(false);
   const pushToast = useUI((s) => s.pushToast);
 
@@ -278,18 +388,33 @@ function AddExpenseModalInner({ open, onClose, group, members }: Props) {
     if (!canSubmit || !splitPayload) return;
     setBusy(true);
     try {
-      await createExpense({
-        groupId: group.id,
-        title,
-        description,
-        date,
-        amountMinor,
-        currency,
-        paidByMemberId: paidById,
-        split: splitPayload,
-        categoryKey,
-      });
-      pushToast({ kind: 'success', message: 'Expense added' });
+      if (isEdit && initialExpense) {
+        await updateExpense(initialExpense.id, {
+          title,
+          description,
+          date,
+          amountMinor,
+          currency,
+          paidByMemberId: paidById,
+          split: splitPayload,
+          categoryKey,
+          ...(initialExpense.iconKey !== undefined ? { iconKey: initialExpense.iconKey } : {}),
+        });
+        pushToast({ kind: 'success', message: 'Expense updated' });
+      } else {
+        await createExpense({
+          groupId: group.id,
+          title,
+          description,
+          date,
+          amountMinor,
+          currency,
+          paidByMemberId: paidById,
+          split: splitPayload,
+          categoryKey,
+        });
+        pushToast({ kind: 'success', message: 'Expense added' });
+      }
       onClose();
     } finally {
       setBusy(false);
@@ -300,274 +425,281 @@ function AddExpenseModalInner({ open, onClose, group, members }: Props) {
 
   return (
     <Modal
-      open={open}
+      open
       onClose={onClose}
-      title="Add expense"
+      title={isEdit ? 'Edit expense' : 'Add expense'}
+      wide
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+        <div className="flex w-full items-center justify-end gap-2">
+          <button type="button" className="btn-secondary min-h-11" onClick={onClose}>
             Cancel
           </button>
           <button
             type="submit"
-            form="add-expense-form"
-            className="btn-primary"
+            form="expense-form"
+            className="btn-primary min-h-11"
             disabled={!canSubmit || busy}
           >
-            Add expense
+            {isEdit ? 'Save changes' : 'Add expense'}
           </button>
         </div>
       }
     >
-      <form id="add-expense-form" onSubmit={handleSubmit} className="space-y-4 pt-2">
-        <div>
-          <label className="label" htmlFor="exp-title">
-            Title
-          </label>
-          <input
-            id="exp-title"
-            className="input"
-            placeholder="Dinner at the taverna"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            autoFocus
-            required
-          />
-        </div>
+      <form id="expense-form" onSubmit={handleSubmit} className="pt-2">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+          <div className="min-w-0 flex-1 space-y-4">
+            <div>
+              <label className="label" htmlFor="exp-title">
+                Title
+              </label>
+              <input
+                id="exp-title"
+                className="input min-h-11"
+                placeholder="Dinner at the taverna"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                autoFocus
+                required
+              />
+            </div>
 
-        <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-          <div>
-            <label className="label" htmlFor="exp-amount">
-              Amount
-            </label>
-            <input
-              id="exp-amount"
-              className="input text-right tabular-nums text-lg font-semibold"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={amount}
-              onChange={(e) => handleAmountChange(e.target.value)}
-              required
-            />
-          </div>
-          <div className="w-32">
-            <label className="label">Currency</label>
-            <CurrencyCombobox value={currency} onChange={setCurrency} />
-          </div>
-        </div>
+            <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+              <div>
+                <label className="label" htmlFor="exp-amount">
+                  Amount
+                </label>
+                <input
+                  id="exp-amount"
+                  className="input min-h-11 text-right tabular-nums text-lg font-semibold"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={(e) => handleAmountChange(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="w-32 [&_button.input]:min-h-11">
+                <label className="label">Currency</label>
+                <CurrencyCombobox value={currency} onChange={setCurrency} />
+              </div>
+            </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label" htmlFor="exp-date">
-              Date
-            </label>
-            <input
-              id="exp-date"
-              type="date"
-              className="input"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="exp-cat">
-              Category
-            </label>
-            <select
-              id="exp-cat"
-              className="input"
-              value={categoryKey}
-              onChange={(e) => setCategoryKey(e.target.value)}
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.emoji}  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="label" htmlFor="exp-desc">
-            Note
-          </label>
-          <textarea
-            id="exp-desc"
-            className="input"
-            rows={2}
-            placeholder="Optional"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="label">Paid by</label>
-          <div className="flex flex-wrap gap-1.5">
-            {members.map((m) => {
-              const active = m.id === paidById;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setPaidById(m.id)}
-                  className={`flex items-center gap-1.5 rounded-full pl-1 pr-3 py-1 text-sm border transition ${
-                    active
-                      ? 'bg-accent text-white border-accent'
-                      : 'bg-white text-slate-700 border-slate-200'
-                  }`}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label" htmlFor="exp-date">
+                  Date
+                </label>
+                <input
+                  id="exp-date"
+                  type="date"
+                  className="input min-h-11"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="exp-cat">
+                  Category
+                </label>
+                <select
+                  id="exp-cat"
+                  className="input min-h-11"
+                  value={categoryKey}
+                  onChange={(e) => setCategoryKey(e.target.value)}
                 >
-                  <Avatar name={m.displayName} size={22} />
-                  {m.displayName}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                  {CATEGORIES.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.emoji}  {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-        <div>
-          <div className="flex items-baseline justify-between mb-1.5">
-            <span className="label !mb-0">Split</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {SPLIT_MODES.map((m) => {
-              const active = m.key === splitMode;
-              return (
-                <button
-                  key={m.key}
-                  type="button"
-                  onClick={() => chooseSplitMode(m.key)}
-                  className={`px-3 py-1.5 rounded-full border text-sm transition ${
-                    active
-                      ? 'bg-accent text-white border-accent'
-                      : 'bg-white text-slate-700 border-slate-200'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+            <div>
+              <label className="label" htmlFor="exp-desc">
+                Note
+              </label>
+              <textarea
+                id="exp-desc"
+                className="input"
+                rows={2}
+                placeholder="Optional"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
 
-        <div>
-          <label className="label">Split between</label>
-          <ul className="card divide-y divide-slate-100">
-            {members.map((m) => {
-              const checked = participants.includes(m.id);
-              return (
-                <li key={m.id}>
-                  <label className="flex items-center gap-3 p-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleParticipant(m.id)}
-                      className="h-4 w-4 accent-accent shrink-0"
-                    />
-                    <Avatar name={m.displayName} size={28} />
-                    <span className="text-sm font-medium text-slate-800 grow min-w-0">
+            <div>
+              <label className="label">Paid by</label>
+              <div className="flex flex-wrap gap-2">
+                {members.map((m) => {
+                  const active = m.id === paidById;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setPaidById(m.id)}
+                      className={`flex min-h-11 items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-sm transition ${
+                        active
+                          ? 'bg-accent text-white border-accent'
+                          : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <Avatar name={m.displayName} size={22} />
                       {m.displayName}
-                    </span>
-                    {splitMode === 'exact' && checked ? (
-                      <input
-                        className="input text-right tabular-nums w-[7.5rem] shrink-0 py-1.5 text-sm"
-                        inputMode="decimal"
-                        placeholder={formatMinorNumeric(0, currency)}
-                        value={exactByMember[m.id] ?? ''}
-                        onChange={(e) =>
-                          setExactByMember((prev) => ({ ...prev, [m.id]: e.target.value }))
-                        }
-                      />
-                    ) : null}
-                    {splitMode === 'percent' && checked ? (
-                      <div className="flex items-center gap-1 shrink-0">
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 w-full space-y-4 lg:w-[22rem] lg:shrink-0">
+            <div>
+              <div className="mb-1.5 flex items-baseline justify-between">
+                <span className="label !mb-0">Split</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SPLIT_MODES.map((m) => {
+                  const active = m.key === splitMode;
+                  return (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => chooseSplitMode(m.key)}
+                      className={`min-h-11 rounded-full border px-3 py-2 text-sm transition ${
+                        active
+                          ? 'bg-accent text-white border-accent'
+                          : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Split between</label>
+              <ul className="card divide-y divide-slate-100">
+                {members.map((m) => {
+                  const checked = participants.includes(m.id);
+                  return (
+                    <li key={m.id}>
+                      <label className="flex min-h-11 cursor-pointer items-center gap-3 px-2 py-2 sm:px-2.5">
                         <input
-                          className="input text-right tabular-nums w-[4.5rem] py-1.5 text-sm"
-                          inputMode="decimal"
-                          placeholder="0"
-                          value={percentByMember[m.id] ?? ''}
-                          onChange={(e) =>
-                            setPercentByMember((prev) => ({ ...prev, [m.id]: e.target.value }))
-                          }
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleParticipant(m.id)}
+                          className="h-[1.125rem] w-[1.125rem] shrink-0 accent-accent"
                         />
-                        <span className="text-slate-500 text-sm">%</span>
-                      </div>
-                    ) : null}
-                    {splitMode === 'shares' && checked ? (
-                      <input
-                        className="input text-right tabular-nums w-[4.5rem] shrink-0 py-1.5 text-sm"
-                        inputMode="numeric"
-                        placeholder="1"
-                        value={sharesByMember[m.id] ?? ''}
-                        onChange={(e) =>
-                          setSharesByMember((prev) => ({ ...prev, [m.id]: e.target.value }))
-                        }
-                      />
-                    ) : null}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-          {participants.length === 0 ? (
-            <p className="text-xs text-red-600 mt-1">Pick at least one participant.</p>
-          ) : null}
-          {splitMode === 'exact' && participants.length > 0 ? (
-            <p
-              className={`text-xs mt-1.5 tabular-nums ${
-                exactDeltaMinor === 0 ? 'text-slate-500' : 'text-amber-700'
-              }`}
-            >
-              Parts total {formatMoney(exactSumMinor, currency)}
-              {amountMinor > 0 ? (
-                <>
-                  {' '}
-                  · expense {formatMoney(amountMinor, currency)}
-                  {exactDeltaMinor !== 0 ? (
+                        <Avatar name={m.displayName} size={28} />
+                        <span className="min-w-0 grow text-sm font-medium text-slate-800">
+                          {m.displayName}
+                        </span>
+                        {splitMode === 'exact' && checked ? (
+                          <input
+                            className="input min-h-11 w-[7.5rem] shrink-0 py-2 text-right text-sm tabular-nums"
+                            inputMode="decimal"
+                            placeholder={formatMinorNumeric(0, currency)}
+                            value={exactByMember[m.id] ?? ''}
+                            onChange={(e) =>
+                              setExactByMember((prev) => ({ ...prev, [m.id]: e.target.value }))
+                            }
+                          />
+                        ) : null}
+                        {splitMode === 'percent' && checked ? (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <input
+                              className="input min-h-11 w-[4.5rem] py-2 text-right text-sm tabular-nums"
+                              inputMode="decimal"
+                              placeholder="0"
+                              value={percentByMember[m.id] ?? ''}
+                              onChange={(e) =>
+                                setPercentByMember((prev) => ({ ...prev, [m.id]: e.target.value }))
+                              }
+                            />
+                            <span className="text-sm text-slate-500">%</span>
+                          </div>
+                        ) : null}
+                        {splitMode === 'shares' && checked ? (
+                          <input
+                            className="input min-h-11 w-[4.5rem] shrink-0 py-2 text-right text-sm tabular-nums"
+                            inputMode="numeric"
+                            placeholder="1"
+                            value={sharesByMember[m.id] ?? ''}
+                            onChange={(e) =>
+                              setSharesByMember((prev) => ({ ...prev, [m.id]: e.target.value }))
+                            }
+                          />
+                        ) : null}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+              {participants.length === 0 ? (
+                <p className="mt-1 text-xs text-red-600">Pick at least one participant.</p>
+              ) : null}
+              {splitMode === 'exact' && participants.length > 0 ? (
+                <p
+                  className={`mt-1.5 text-xs tabular-nums ${
+                    exactDeltaMinor === 0 ? 'text-slate-500' : 'text-amber-700'
+                  }`}
+                >
+                  Parts total {formatMoney(exactSumMinor, currency)}
+                  {amountMinor > 0 ? (
                     <>
                       {' '}
-                      ·{' '}
-                      {exactDeltaMinor > 0 ? '+' : ''}
-                      {formatMoney(exactDeltaMinor, currency)}
+                      · expense {formatMoney(amountMinor, currency)}
+                      {exactDeltaMinor !== 0 ? (
+                        <>
+                          {' '}
+                          ·{' '}
+                          {exactDeltaMinor > 0 ? '+' : ''}
+                          {formatMoney(exactDeltaMinor, currency)}
+                        </>
+                      ) : null}
                     </>
                   ) : null}
-                </>
+                </p>
               ) : null}
-            </p>
-          ) : null}
-          {splitMode === 'percent' && participants.length > 0 ? (
-            <p
-              className={`text-xs mt-1.5 tabular-nums ${
-                percentSum !== null && Math.abs(percentSum - 100) <= 0.01
-                  ? 'text-slate-500'
-                  : 'text-amber-700'
-              }`}
-            >
-              Percent total:{' '}
-              {percentSum === null ? '—' : `${percentSum.toFixed(2)}%`} (need 100.00% ± 0.01)
-            </p>
-          ) : null}
-          {splitMode === 'percent' && percentPreview && participants.length > 0 ? (
-            <ul className="mt-2 text-xs text-slate-500 space-y-0.5 tabular-nums">
-              {participantMembers.map((m) => (
-                <li key={m.id} className="flex justify-between gap-2">
-                  <span className="truncate">{m.displayName}</span>
-                  <span>{formatMoney(percentPreview[m.id] ?? 0, currency)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {splitMode === 'shares' && sharesPreview && participants.length > 0 ? (
-            <ul className="mt-2 text-xs text-slate-500 space-y-0.5 tabular-nums">
-              {participantMembers.map((m) => (
-                <li key={m.id} className="flex justify-between gap-2">
-                  <span className="truncate">{m.displayName}</span>
-                  <span>{formatMoney(sharesPreview[m.id] ?? 0, currency)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+              {splitMode === 'percent' && participants.length > 0 ? (
+                <p
+                  className={`mt-1.5 text-xs tabular-nums ${
+                    percentSum !== null && Math.abs(percentSum - 100) <= 0.01
+                      ? 'text-slate-500'
+                      : 'text-amber-700'
+                  }`}
+                >
+                  Percent total:{' '}
+                  {percentSum === null ? '—' : `${percentSum.toFixed(2)}%`} (need 100.00% ± 0.01)
+                </p>
+              ) : null}
+              {splitMode === 'percent' && percentPreview && participants.length > 0 ? (
+                <ul className="mt-2 space-y-0.5 text-xs tabular-nums text-slate-500">
+                  {participantMembers.map((m) => (
+                    <li key={m.id} className="flex justify-between gap-2">
+                      <span className="truncate">{m.displayName}</span>
+                      <span>{formatMoney(percentPreview[m.id] ?? 0, currency)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {splitMode === 'shares' && sharesPreview && participants.length > 0 ? (
+                <ul className="mt-2 space-y-0.5 text-xs tabular-nums text-slate-500">
+                  {participantMembers.map((m) => (
+                    <li key={m.id} className="flex justify-between gap-2">
+                      <span className="truncate">{m.displayName}</span>
+                      <span>{formatMoney(sharesPreview[m.id] ?? 0, currency)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </div>
         </div>
       </form>
     </Modal>
