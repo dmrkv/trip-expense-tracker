@@ -25,6 +25,8 @@ export interface Member {
   groupId: ID;
   displayName: string;
   sortOrder: number;
+  /** Epoch ms; used for cloud sync last-write-wins. */
+  updatedAt: number;
 }
 
 /**
@@ -54,6 +56,8 @@ export interface Expense {
   categoryKey?: string;
   iconKey?: string;
   createdAt: number;
+  /** Epoch ms; used for cloud sync last-write-wins. */
+  updatedAt: number;
 }
 
 export interface Transfer {
@@ -66,4 +70,6 @@ export interface Transfer {
   date: string;
   note?: string;
   createdAt: number;
+  /** Epoch ms; used for cloud sync last-write-wins. */
+  updatedAt: number;
 }

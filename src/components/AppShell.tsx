@@ -1,6 +1,7 @@
 import { Briefcase, Settings } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import ToastViewport from './ToastViewport';
+import TripLinkImportPrompt from './TripLinkImportPrompt';
 
 /**
  * Mobile-first app chrome. Header is sticky at the top, bottom tab
@@ -45,6 +46,7 @@ export default function AppShell() {
       </main>
 
       <BottomNav />
+      <TripLinkImportPrompt />
       <ToastViewport />
     </div>
   );

@@ -12,6 +12,7 @@ import AddExpenseModal from '../components/AddExpenseModal';
 import ShareTripBackupModal from '../components/ShareTripBackupModal';
 import { deleteGroup, exportGroupReplacePayload } from '../lib/repo';
 import { useUI } from '../store/ui';
+import type { ExportPayload } from '../lib/repo';
 import type { Member } from '../types';
 
 const TABS = [
@@ -28,7 +29,7 @@ export default function GroupPage() {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareBackupJson, setShareBackupJson] = useState<string | null>(null);
+  const [shareBackupPayload, setShareBackupPayload] = useState<ExportPayload | null>(null);
   const [shareBackupLoading, setShareBackupLoading] = useState(false);
   const [shareBackupError, setShareBackupError] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -76,7 +77,7 @@ export default function GroupPage() {
 
   function closeShareModal() {
     setShareOpen(false);
-    setShareBackupJson(null);
+    setShareBackupPayload(null);
     setShareBackupError(null);
     setShareBackupLoading(false);
   }
@@ -84,12 +85,12 @@ export default function GroupPage() {
   async function openShareModal() {
     if (!id) return;
     setShareOpen(true);
-    setShareBackupJson(null);
+    setShareBackupPayload(null);
     setShareBackupError(null);
     setShareBackupLoading(true);
     try {
       const payload = await exportGroupReplacePayload(id);
-      setShareBackupJson(JSON.stringify(payload, null, 2));
+      setShareBackupPayload(payload);
     } catch (e) {
       setShareBackupError(e instanceof Error ? e.message : 'Could not export trip');
     } finally {
@@ -110,21 +111,23 @@ export default function GroupPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-3">
-        <Avatar name={group.name} src={group.avatarDataUrl} size={56} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900 truncate">{group.name}</h1>
-          </div>
-          {group.description ? (
-            <p className="text-sm text-slate-500 mt-0.5">{group.description}</p>
-          ) : null}
-          <div className="text-xs text-slate-400 mt-1">
-            {members.length} {members.length === 1 ? 'member' : 'members'} · default{' '}
-            {group.defaultCurrency}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <Avatar name={group.name} src={group.avatarDataUrl} size={56} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-slate-900 truncate">{group.name}</h1>
+            </div>
+            {group.description ? (
+              <p className="text-sm text-slate-500 mt-0.5">{group.description}</p>
+            ) : null}
+            <div className="text-xs text-slate-400 mt-1">
+              {members.length} {members.length === 1 ? 'member' : 'members'} · default{' '}
+              {group.defaultCurrency}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 justify-end sm:justify-start">
           <button
             type="button"
             className="btn-secondary min-h-10 px-3 py-2 text-sm gap-1.5"
@@ -228,7 +231,7 @@ export default function GroupPage() {
         open={shareOpen}
         onClose={closeShareModal}
         groupName={group.name}
-        backupJson={shareBackupJson}
+        backupPayload={shareBackupPayload}
         backupLoading={shareBackupLoading}
         backupError={shareBackupError}
       />

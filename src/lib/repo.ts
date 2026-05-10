@@ -6,6 +6,7 @@
  */
 import { v4 as uuid } from 'uuid';
 import { db } from '../db';
+import { notifyLocalDataMutation } from '../sync/notify';
 import type { Expense, Group, Member, SplitPayload, Transfer } from '../types';
 
 const now = () => Date.now();
@@ -27,11 +28,13 @@ export async function createGroup(input: {
     updatedAt: now(),
   };
   await db.groups.add(group);
+  notifyLocalDataMutation();
   return group;
 }
 
 export async function updateGroup(id: string, patch: Partial<Omit<Group, 'id' | 'createdAt'>>) {
   await db.groups.update(id, { ...patch, updatedAt: now() });
+  notifyLocalDataMutation();
 }
 
 export async function deleteGroup(id: string) {
@@ -45,6 +48,7 @@ export async function deleteGroup(id: string) {
       await db.groups.delete(id);
     },
   );
+  notifyLocalDataMutation();
 }
 
 // --------------------------------------------------------------- members
@@ -55,17 +59,21 @@ export async function addMember(groupId: string, displayName: string): Promise<M
     groupId,
     displayName: displayName.trim(),
     sortOrder: existing,
+    updatedAt: now(),
   };
   await db.members.add(member);
+  notifyLocalDataMutation();
   return member;
 }
 
 export async function renameMember(id: string, displayName: string) {
-  await db.members.update(id, { displayName: displayName.trim() });
+  await db.members.update(id, { displayName: displayName.trim(), updatedAt: now() });
+  notifyLocalDataMutation();
 }
 
 export async function deleteMember(id: string) {
   await db.members.delete(id);
+  notifyLocalDataMutation();
 }
 
 // -------------------------------------------------------------- expenses
@@ -95,13 +103,16 @@ export async function createExpense(input: NewExpenseInput): Promise<Expense> {
     splitJson: input.split,
     categoryKey: input.categoryKey,
     createdAt: now(),
+    updatedAt: now(),
   };
   await db.expenses.add(expense);
+  notifyLocalDataMutation();
   return expense;
 }
 
 export async function deleteExpense(id: string) {
   await db.expenses.delete(id);
+  notifyLocalDataMutation();
 }
 
 // ------------------------------------------------------------- transfers
@@ -110,13 +121,16 @@ export async function createTransfer(input: Omit<Transfer, 'id' | 'createdAt'>):
     ...input,
     id: uuid(),
     createdAt: now(),
+    updatedAt: now(),
   };
   await db.transfers.add(transfer);
+  notifyLocalDataMutation();
   return transfer;
 }
 
 export async function deleteTransfer(id: string) {
   await db.transfers.delete(id);
+  notifyLocalDataMutation();
 }
 
 // ----------------------------------------------------------- export/import
@@ -172,6 +186,19 @@ export async function exportGroupReplacePayload(groupId: string): Promise<Export
  * row counts written so the caller can show a confirmation toast.
  */
 export async function importAllReplace(payload: ExportPayload) {
+  const ts = now();
+  const members = (payload.members ?? []).map((m) => ({
+    ...m,
+    updatedAt: m.updatedAt ?? ts,
+  }));
+  const expenses = (payload.expenses ?? []).map((e) => ({
+    ...e,
+    updatedAt: e.updatedAt ?? e.createdAt ?? ts,
+  }));
+  const transfers = (payload.transfers ?? []).map((t) => ({
+    ...t,
+    updatedAt: t.updatedAt ?? t.createdAt ?? ts,
+  }));
   await db.transaction(
     'rw',
     [db.groups, db.members, db.expenses, db.transfers],
@@ -183,11 +210,12 @@ export async function importAllReplace(payload: ExportPayload) {
         db.transfers.clear(),
       ]);
       await db.groups.bulkAdd(payload.groups ?? []);
-      await db.members.bulkAdd(payload.members ?? []);
-      await db.expenses.bulkAdd(payload.expenses ?? []);
-      await db.transfers.bulkAdd(payload.transfers ?? []);
+      await db.members.bulkAdd(members);
+      await db.expenses.bulkAdd(expenses);
+      await db.transfers.bulkAdd(transfers);
     },
   );
+  notifyLocalDataMutation();
   return {
     groups: payload.groups?.length ?? 0,
     members: payload.members?.length ?? 0,

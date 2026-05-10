@@ -23,6 +23,35 @@ class TripExpenseDB extends Dexie {
       transfers: 'id, groupId, date, fromMemberId, toMemberId, createdAt',
     });
 
+    const migrateTs = Date.now();
+    this.version(2)
+      .stores({
+        groups: 'id, name, createdAt, updatedAt',
+        members: 'id, groupId, sortOrder, updatedAt',
+        expenses: 'id, groupId, date, paidByMemberId, createdAt, updatedAt',
+        transfers: 'id, groupId, date, fromMemberId, toMemberId, createdAt, updatedAt',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('members')
+          .toCollection()
+          .modify((m: Member) => {
+            m.updatedAt = m.updatedAt ?? migrateTs;
+          });
+        await tx
+          .table('expenses')
+          .toCollection()
+          .modify((e: Expense) => {
+            e.updatedAt = e.updatedAt ?? e.createdAt;
+          });
+        await tx
+          .table('transfers')
+          .toCollection()
+          .modify((t: Transfer) => {
+            t.updatedAt = t.updatedAt ?? t.createdAt;
+          });
+      });
+
     // Example future migration scaffold (commented for clarity):
     // this.version(2).stores({ ... }).upgrade(async (tx) => {
     //   await tx.table('groups').toCollection().modify((g) => {
