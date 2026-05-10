@@ -152,7 +152,9 @@ export default function ShareTripBackupModal({
           The link packs a compressed backup in the URL (after{' '}
           <span className="font-medium text-slate-800">#</span>
           ). Opening it here prompts to import — nothing is uploaded to a server. Each person keeps a
-          local copy; there is no live sync between devices.
+          local copy; there is no live sync between devices. Some chat apps shorten long URLs; if
+          import fails, use <span className="font-medium text-slate-800">Copy link</span> and paste
+          the full URL into the browser.
         </p>
 
         {backupLoading ? (
@@ -173,16 +175,6 @@ export default function ShareTripBackupModal({
           >
             Copy link
           </button>
-          {shareUrlSupported ? (
-            <button
-              type="button"
-              className="btn-primary min-h-11 w-full justify-center ring-1 ring-accent/25 shadow-none"
-              disabled={!linkPack || backupLoading || linkTooLarge}
-              onClick={() => void handleShareLink()}
-            >
-              Share link…
-            </button>
-          ) : null}
 
           {linkPack && !backupLoading && !backupError ? (
             <div className="space-y-2">
@@ -213,6 +205,16 @@ export default function ShareTripBackupModal({
               Advanced
             </p>
             <div className="flex flex-col gap-2.5">
+              {shareUrlSupported ? (
+                <button
+                  type="button"
+                  className="btn-secondary min-h-9 w-full justify-center text-xs font-normal text-slate-600"
+                  disabled={!linkPack || backupLoading || linkTooLarge}
+                  onClick={() => void handleShareLink()}
+                >
+                  Share link via device…
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btn-secondary min-h-11 w-full justify-center"

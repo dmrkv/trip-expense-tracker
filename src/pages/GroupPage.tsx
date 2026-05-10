@@ -127,7 +127,16 @@ export default function GroupPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0 justify-end sm:justify-start">
+        <div className="flex items-center gap-1 shrink-0 justify-end sm:justify-start flex-wrap sm:flex-nowrap">
+          <button
+            type="button"
+            className="btn-primary min-h-10 px-3 py-2 text-sm gap-1.5"
+            onClick={openAddExpense}
+          >
+            <Plus className="h-[18px] w-[18px] shrink-0" aria-hidden />
+            <span className="sm:hidden">Add</span>
+            <span className="hidden sm:inline">Add expense</span>
+          </button>
           <button
             type="button"
             className="btn-secondary min-h-10 px-3 py-2 text-sm gap-1.5"
@@ -204,17 +213,6 @@ export default function GroupPage() {
       {activeTab === 'members' ? (
         <MembersTab groupId={id} members={members} />
       ) : null}
-
-      {/* Floating add expense button */}
-      <button
-        type="button"
-        onClick={openAddExpense}
-        className="fixed right-4 z-30 btn-primary h-14 w-14 rounded-full p-0 shadow-lg"
-        style={{ bottom: 'calc(72px + var(--safe-bottom))' }}
-        aria-label="Add expense"
-      >
-        <Plus className="h-[22px] w-[22px]" strokeWidth={2.4} aria-hidden />
-      </button>
 
       <GroupFormModal
         open={editing}

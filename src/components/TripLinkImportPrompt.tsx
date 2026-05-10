@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import Modal from './Modal';
 import { importAllReplace, type ExportPayload } from '../lib/repo';
-import { decodeTripHash, isTripLinkHash } from '../lib/tripLinkCodec';
+import {
+  TripLinkDecodeError,
+  decodeTripHash,
+  isTripLinkHash,
+  tripLinkDecodeUserMessage,
+} from '../lib/tripLinkCodec';
 import { useUI } from '../store/ui';
 
 function stripHashFromLocation() {
@@ -26,8 +31,13 @@ export default function TripLinkImportPrompt() {
       try {
         const payload = decodeTripHash(raw);
         setOffer(payload);
-      } catch {
-        pushToast({ kind: 'error', message: 'Invalid or corrupted trip link.' });
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          const detail =
+            e instanceof TripLinkDecodeError ? { step: e.step, cause: e.cause } : e;
+          console.warn('[trip link decode]', detail);
+        }
+        pushToast({ kind: 'error', message: tripLinkDecodeUserMessage(e) });
         stripHashFromLocation();
       }
     }

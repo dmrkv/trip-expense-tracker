@@ -1,4 +1,5 @@
 import type { Expense, Member, Transfer } from '../types';
+import { allocateWeightedMinor, splitEqualMinor } from './splitAllocate';
 
 /**
  * Honest multi-currency MVP: we compute balances *per currency* and
@@ -25,21 +26,6 @@ export interface CurrencyLedger {
   perMemberShareMinor: Record<string, number>;
   nets: MemberNet[];
   settlements: Settlement[];
-}
-
-/**
- * Distribute `amount` evenly across `n` participants in integer minor
- * units. We round each share down and assign the leftover remainder
- * one-by-one starting from the first index, so the sum is always
- * exactly the total.
- */
-function splitEqualMinor(amount: number, n: number): number[] {
-  if (n <= 0) return [];
-  const base = Math.trunc(amount / n);
-  const remainder = amount - base * n;
-  const out = new Array(n).fill(base);
-  for (let i = 0; i < remainder; i += 1) out[i] += 1;
-  return out;
 }
 
 /** Greedy two-pointer settlement minimizer. */
@@ -107,7 +93,7 @@ export function computeLedgers(
       bucket.paid[e.paidByMemberId] += e.amountMinor;
     }
 
-    if (e.splitMode === 'equal' && e.splitJson.mode === 'equal') {
+    if (e.splitJson.mode === 'equal') {
       const participants = e.splitJson.participantMemberIds.filter((id) =>
         memberIds.includes(id),
       );
@@ -120,35 +106,16 @@ export function computeLedgers(
         if (memberIds.includes(id)) bucket.share[id] += amt;
       }
     } else if (e.splitJson.mode === 'percent') {
-      const totalPct = Object.values(e.splitJson.shares).reduce((a, b) => a + b, 0);
-      if (totalPct > 0) {
-        const ids = Object.keys(e.splitJson.shares).filter((id) => memberIds.includes(id));
-        const raw = ids.map(
-          (id) => Math.round(((e.splitJson as { shares: Record<string, number> }).shares[id] / totalPct) * e.amountMinor),
-        );
-        // Adjust rounding drift onto the first participant.
-        const drift = e.amountMinor - raw.reduce((a, b) => a + b, 0);
-        if (raw.length > 0) raw[0] += drift;
-        ids.forEach((id, idx) => {
-          bucket.share[id] += raw[idx];
-        });
+      const ids = Object.keys(e.splitJson.shares).filter((id) => memberIds.includes(id));
+      const allocated = allocateWeightedMinor(e.amountMinor, ids, e.splitJson.shares);
+      for (const id of ids) {
+        bucket.share[id] += allocated[id] ?? 0;
       }
     } else if (e.splitJson.mode === 'shares') {
-      const totalShares = Object.values(e.splitJson.shares).reduce((a, b) => a + b, 0);
-      if (totalShares > 0) {
-        const ids = Object.keys(e.splitJson.shares).filter((id) => memberIds.includes(id));
-        const raw = ids.map(
-          (id) =>
-            Math.round(
-              ((e.splitJson as { shares: Record<string, number> }).shares[id] / totalShares) *
-                e.amountMinor,
-            ),
-        );
-        const drift = e.amountMinor - raw.reduce((a, b) => a + b, 0);
-        if (raw.length > 0) raw[0] += drift;
-        ids.forEach((id, idx) => {
-          bucket.share[id] += raw[idx];
-        });
+      const ids = Object.keys(e.splitJson.shares).filter((id) => memberIds.includes(id));
+      const allocated = allocateWeightedMinor(e.amountMinor, ids, e.splitJson.shares);
+      for (const id of ids) {
+        bucket.share[id] += allocated[id] ?? 0;
       }
     }
   }

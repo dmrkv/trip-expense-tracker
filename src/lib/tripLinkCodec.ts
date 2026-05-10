@@ -7,16 +7,55 @@ export const TRIP_LINK_HASH_PREFIX = 'tripsplit=t1.';
 /** Total URL length cap (origin + path + `#…`) before link sharing is disabled. */
 export const MAX_TRIP_LINK_URL_LENGTH = 60_000;
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
+export type TripLinkDecodeStep = 'prefix' | 'base64' | 'gzip' | 'json' | 'validate';
+
+/** Thrown from {@link decodeTripHash} with a coarse pipeline step for UX / dev logs. */
+export class TripLinkDecodeError extends Error {
+  readonly step: TripLinkDecodeStep;
+  readonly cause?: unknown;
+
+  constructor(message: string, step: TripLinkDecodeStep, cause?: unknown) {
+    super(message);
+    this.name = 'TripLinkDecodeError';
+    this.step = step;
+    this.cause = cause;
   }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
+}
+
+export function tripLinkDecodeUserMessage(err: unknown): string {
+  if (err instanceof TripLinkDecodeError) {
+    switch (err.step) {
+      case 'prefix':
+        return 'Not a valid Tripsplit trip link.';
+      case 'base64':
+        return 'Trip link text looks corrupted. Copy the full link again (Share → Copy link).';
+      case 'gzip':
+        return 'Could not read trip link — it may be truncated. Copy the link again; avoid “Share” in apps that shorten URLs.';
+      case 'json':
+        return 'Trip link data looks damaged. Ask for a fresh share or use Copy link.';
+      case 'validate':
+        return err.message;
+      default:
+        return 'Invalid or corrupted trip link.';
+    }
   }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+  return 'Invalid or corrupted trip link.';
+}
+
+/** Trim BOM/whitespace; if multiple `#`, use the segment after the last `#`. */
+export function normalizeTripHashInput(raw: string): string {
+  let s = raw.trim().replace(/^\uFEFF/, '');
+  if (s.includes('#')) {
+    s = s.slice(s.lastIndexOf('#') + 1);
+  }
+  return s.trim();
+}
+
+/** Locate `tripsplit=t1.` anywhere in the fragment (tolerates stray prefix characters). */
+function extractTripLinkFragment(fragment: string): string | null {
+  const idx = fragment.indexOf(TRIP_LINK_HASH_PREFIX);
+  if (idx === -1) return null;
+  return fragment.slice(idx).trim();
 }
 
 function u8ToBase64Url(bytes: Uint8Array): string {
@@ -46,13 +85,14 @@ function buildTripShareUrl(fragmentBody: string): string {
 
 /**
  * Compress export payload into a client-only trip URL (hash never reaches the server).
+ * Uses `JSON.stringify` (same semantics as downloaded backups) so optional fields stay valid JSON.
  */
 export function encodeTripExport(payload: ExportPayload): {
   url: string;
   tooLarge: boolean;
   bytes: number;
 } {
-  const json = stableStringify(payload);
+  const json = JSON.stringify(payload);
   const gz = gzipSync(strToU8(json), { level: 9 });
   const b64 = u8ToBase64Url(gz);
   const fragmentBody = `${TRIP_LINK_HASH_PREFIX}${b64}`;
@@ -65,38 +105,52 @@ export function encodeTripExport(payload: ExportPayload): {
  * Parse `#tripsplit=t1.…` or `tripsplit=t1.…` into an export payload.
  */
 export function decodeTripHash(hash: string): ExportPayload {
-  const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
-  if (!trimmed.startsWith(TRIP_LINK_HASH_PREFIX)) {
-    throw new Error('Not a Tripsplit trip link');
+  const normalized = normalizeTripHashInput(hash);
+  const body = extractTripLinkFragment(normalized);
+  if (!body || !body.startsWith(TRIP_LINK_HASH_PREFIX)) {
+    throw new TripLinkDecodeError('Not a Tripsplit trip link', 'prefix');
   }
-  const b64 = trimmed.slice(TRIP_LINK_HASH_PREFIX.length);
+  const b64 = body.slice(TRIP_LINK_HASH_PREFIX.length).replace(/[\s\u200b\uFEFF]+/g, '');
   if (!b64) {
-    throw new Error('Trip link payload is empty');
+    throw new TripLinkDecodeError('Trip link payload is empty', 'prefix');
   }
+
+  let u8: Uint8Array;
+  try {
+    u8 = base64UrlToU8(b64);
+  } catch (e) {
+    throw new TripLinkDecodeError('Trip link payload is not valid base64', 'base64', e);
+  }
+
   let rawJson: string;
   try {
-    const u8 = base64UrlToU8(b64);
     rawJson = new TextDecoder().decode(gunzipSync(u8));
-  } catch {
-    throw new Error('Trip link could not be decoded');
+  } catch (e) {
+    throw new TripLinkDecodeError('Trip link could not be decompressed', 'gzip', e);
   }
+
   let data: unknown;
   try {
     data = JSON.parse(rawJson);
-  } catch {
-    throw new Error('Trip link contained invalid JSON');
+  } catch (e) {
+    throw new TripLinkDecodeError('Trip link contained invalid JSON', 'json', e);
   }
+
   const payload = data as ExportPayload;
   if (payload.schemaVersion !== 1) {
-    throw new Error(`Unsupported trip link format (v${String(payload.schemaVersion)})`);
+    throw new TripLinkDecodeError(
+      `Unsupported trip link format (v${String(payload.schemaVersion)})`,
+      'validate',
+    );
   }
   if (!Array.isArray(payload.groups)) {
-    throw new Error('Invalid trip link payload');
+    throw new TripLinkDecodeError('Invalid trip link payload', 'validate');
   }
   return payload;
 }
 
 export function isTripLinkHash(hash: string): boolean {
-  const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
-  return trimmed.startsWith(TRIP_LINK_HASH_PREFIX);
+  const normalized = normalizeTripHashInput(hash);
+  const body = extractTripLinkFragment(normalized);
+  return body !== null && body.startsWith(TRIP_LINK_HASH_PREFIX);
 }

@@ -1,5 +1,5 @@
 import { Briefcase, Settings } from 'lucide-react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet } from 'react-router-dom';
 import ToastViewport from './ToastViewport';
 import TripLinkImportPrompt from './TripLinkImportPrompt';
 
@@ -9,9 +9,6 @@ import TripLinkImportPrompt from './TripLinkImportPrompt';
  * bottom bar is replaced with inline header nav.
  */
 export default function AppShell() {
-  const { pathname } = useLocation();
-  const onGroupRoute = pathname.startsWith('/group/');
-
   return (
     <div className="min-h-full flex flex-col bg-slate-50">
       <header
@@ -38,9 +35,7 @@ export default function AppShell() {
       </header>
 
       <main
-        className={`mx-auto w-full max-w-2xl px-4 ${
-          onGroupRoute ? 'pb-32' : 'pb-28'
-        } pt-4 flex-1`}
+        className="mx-auto w-full max-w-2xl px-4 pb-28 pt-4 flex-1"
       >
         <Outlet />
       </main>
